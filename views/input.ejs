@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Phone Input — Crowd Count</h1>
+    <p>Make sure your phone and laptop are on the same Wi-Fi. Open this page on your phone.</p>
+
+    <div class="controls">
+      <label>Interval (seconds): <input id="intervalSec" type="number" min="1" value="5"></label>
+      <button id="startBtn">Start Streaming</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <div id="status" class="status">Idle</div>
+    </div>
+
+    <video id="phoneVideo" autoplay playsinline muted></video>
+    <canvas id="phoneCanvas" style="display:none"></canvas>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/input.js"></script>
+</body>
+</html>

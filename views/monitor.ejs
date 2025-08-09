@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Monitor — Live Output</h1>
+    <p>Shows annotated image and count from Roboflow.</p>
+
+    <div class="monitor-grid">
+      <div class="annotated">
+        <h3>Annotated Image</h3>
+        <img id="annotatedImg" alt="Annotated" />
+      </div>
+      <div class="summary">
+        <h3>Detection Summary</h3>
+        <div id="countDisplay" class="count">Count: 0</div>
+        <div id="predList" class="pred-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/monitor.js"></script>
+</body>
+</html>
