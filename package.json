@@ -10,7 +10,6 @@
   "dependencies": {
     "@napi-rs/canvas": "^0.1.77",
     "axios": "^1.5.0",
-    "canvas": "^3.1.2",
     "dotenv": "^16.0.0",
     "ejs": "^3.1.8",
     "express": "^4.18.2",

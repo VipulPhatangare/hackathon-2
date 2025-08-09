@@ -6,7 +6,7 @@ const axios = require('axios');
 const fs = require('fs');
 const http = require('http');
 const { Server } = require('socket.io');
-const { createCanvas, loadImage } = require('canvas');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const sharp = require('sharp');
 
 const app = express();
