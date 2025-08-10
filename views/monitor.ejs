@@ -3,7 +3,75 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    body { 
+      font-family: Arial, Helvetica, sans-serif; 
+      background:#f6f8fb; 
+      color:#222; 
+      margin:0; 
+      padding:20px; 
+    }
+    .container { 
+      max-width:90vw; 
+      margin:0 auto; 
+      background:#fff; 
+      padding:18px; 
+      border-radius:8px; 
+      box-shadow:0 6px 18px rgba(0,0,0,0.06); 
+    }
+    h1{ 
+      margin-top:0; 
+      font-size: clamp(1.5rem, 3vw, 2rem);
+    }
+    .monitor-grid { 
+      display: flex;
+      flex-direction: row;
+      gap: 20px;
+    }
+    .monitor-grid .annotated {
+      flex: 1;
+      min-width: 0;
+    }
+    .monitor-grid .annotated img { 
+      max-width: 100%;
+      height: auto;
+      max-height: 70vh;
+      object-fit: contain;
+      border-radius:6px; 
+      background:#ddd; 
+      display: block;
+      margin: 0 auto;
+    }
+    .summary { 
+      min-width:220px; 
+      max-width: 300px;
+    }
+    .count { 
+      font-size: clamp(1.5rem, 3vw, 2rem); 
+      font-weight:700; 
+      margin:12px 0; 
+    }
+    .pred-list { 
+      max-height:60vh; 
+      overflow:auto; 
+      font-size:14px; 
+      background:#fafafa; 
+      padding:8px; 
+      border-radius:6px; 
+    }
+    
+    @media (max-width: 768px) {
+      .monitor-grid {
+        flex-direction: column;
+      }
+      .summary {
+        max-width: 100%;
+      }
+      .monitor-grid .annotated img {
+        max-height: 50vh;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -24,6 +92,47 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/monitor.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const annotatedImg = document.getElementById('annotatedImg');
+      const countDisplay = document.getElementById('countDisplay');
+      const predList = document.getElementById('predList');
+
+      const socket = io();
+
+      socket.on('connect', () => {
+        console.log('Connected monitor socket', socket.id);
+      });
+
+      socket.on('prediction', (data) => {
+        console.log('Prediction received:', data);
+        if (!data) return;
+        if (data.success) {
+          if (data.annotatedImage) {
+            annotatedImg.src = 'data:image/png;base64,' + data.annotatedImage;
+            // Force reflow to ensure image is properly displayed
+            annotatedImg.style.display = 'none';
+            annotatedImg.offsetHeight; // Trigger reflow
+            annotatedImg.style.display = 'block';
+          } else {
+            annotatedImg.src = '';
+          }
+          countDisplay.textContent = 'Count: ' + (data.count ?? 0);
+
+          if (data.predictions && data.predictions.length) {
+            predList.innerHTML = '';
+            const sorted = [...data.predictions].sort((a,b) => (b.confidence||0) - (a.confidence||0));
+            sorted.forEach(p => {
+              const div = document.createElement('div');
+              div.textContent = `${p.class || 'obj'} — ${(Math.round((p.confidence||0)*100))}%`;
+              predList.appendChild(div);
+            });
+          }
+        } else {
+          console.warn('Prediction error', data.error);
+        }
+      });
+    });
+  </script>
 </body>
 </html>

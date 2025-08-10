@@ -109,7 +109,7 @@ async function processFrameAndEmit(clientSocket, frameBase64) {
     const predictions = output.predictions?.predictions || []; // Access nested predictions array
     const count = output.count_objects || predictions.length;
     
-    console.log('Predictions received:', predictions); // Debug log
+    // console.log('Predictions received:', predictions); // Debug log
     
     // Always draw our own dots (since we want custom visualization)
     const processedImage = await drawDotsOnImage(buf, predictions);
@@ -188,7 +188,7 @@ async function drawDotsOnImage(imageBuffer, predictions) {
   }
 }
 io.on('connection', (socket) => {
-  console.log('Client connected', socket.id);
+  // console.log('Client connected', socket.id);
 
   socket.on('frame', (data) => {
     if (!data || !data.imageBase64) {
@@ -203,7 +203,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('Client disconnected', socket.id);
+    // console.log('Client disconnected', socket.id);
   });
 });
 
