@@ -21,6 +21,11 @@ if (!ROBOFLOW_ENDPOINT || !ROBOFLOW_API_KEY) {
   console.warn('WARNING: ROBOFLOW_ENDPOINT or ROBOFLOW_API_KEY missing in .env');
 }
 
+// Alert threshold system
+let ALERT_THRESHOLD = 5; // Default threshold
+const ALERT_COOLDOWN = 5 * 60 * 1000; // 5 minutes cooldown
+let lastAlertTime = 0;
+
 // views + static
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -63,10 +68,18 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     );
 
     const output = resp.data.outputs?.[0] ?? {};
+    const count = output.count_objects ?? 0;
+    
+    // Check threshold for API responses
+    if (count >= ALERT_THRESHOLD && Date.now() - lastAlertTime > ALERT_COOLDOWN) {
+      lastAlertTime = Date.now();
+      console.log(`ALERT: Threshold exceeded (${count} people)`);
+    }
+    
     res.json({
       success: true,
       originalImage: `/uploads/${req.file.filename}`,
-      count: output.count_objects ?? 0,
+      count: count,
       annotatedImage: output.output_image?.value ?? null,
       predictions: output.predictions ?? []
     });
@@ -104,22 +117,29 @@ async function processFrameAndEmit(clientSocket, frameBase64) {
     const buf = Buffer.from(frameBase64, 'base64');
     const rf = await callRoboflowWithBase64(frameBase64);
     
-    // Extract predictions from response - modified to handle your structure
     const output = rf.outputs?.[0] || {};
-    const predictions = output.predictions?.predictions || []; // Access nested predictions array
+    const predictions = output.predictions?.predictions || [];
     const count = output.count_objects || predictions.length;
     
-    // console.log('Predictions received:', predictions); // Debug log
+    // Check threshold for real-time alerts
+    if (count >= ALERT_THRESHOLD && Date.now() - lastAlertTime > ALERT_COOLDOWN) {
+      lastAlertTime = Date.now();
+      console.log(`ALERT: Threshold exceeded (${count} people)`);
+    }
     
-    // Always draw our own dots (since we want custom visualization)
+    // Process images
     const processedImage = await drawDotsOnImage(buf, predictions);
     const annotatedImageBase64 = processedImage.toString('base64');
+    const heatmapImage = await generateHeatmap(buf, predictions);
+    const heatmapImageBase64 = heatmapImage.toString('base64');
     
     const payload = {
       success: true,
       count: count,
       annotatedImage: annotatedImageBase64,
-      predictions: predictions
+      heatmapImage: heatmapImageBase64,
+      predictions: predictions,
+      threshold: ALERT_THRESHOLD
     };
     
     io.emit('prediction', payload);
@@ -145,25 +165,17 @@ async function drawDotsOnImage(imageBuffer, predictions) {
       predictions = [];
     }
 
-    // Load the image
     const image = await sharp(imageBuffer).toBuffer();
     const img = await loadImage(image);
-    
-    // Create canvas
     const canvas = createCanvas(img.width, img.height);
     const ctx = canvas.getContext('2d');
-    
-    // Draw original image
     ctx.drawImage(img, 0, 0);
     
-    // Draw dots for each prediction
-    ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; // Slightly transparent red
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
     predictions.forEach(pred => {
       try {
-        // Use the x and y coordinates directly from your prediction objects
         const x = pred.x;
         const y = pred.y;
-        
         const dotSize = Math.min(20, Math.max(5, Math.sqrt(pred.width * pred.height) / 5));
         
         if (x && y) {
@@ -187,9 +199,49 @@ async function drawDotsOnImage(imageBuffer, predictions) {
     throw err;
   }
 }
-io.on('connection', (socket) => {
-  // console.log('Client connected', socket.id);
 
+async function generateHeatmap(imageBuffer, predictions) {
+  try {
+    if (!Array.isArray(predictions)) {
+      predictions = [];
+    }
+
+    const image = await sharp(imageBuffer).toBuffer();
+    const img = await loadImage(image);
+    const canvas = createCanvas(img.width, img.height);
+    const ctx = canvas.getContext('2d');
+    
+    ctx.globalAlpha = 0.7;
+    ctx.drawImage(img, 0, 0);
+    ctx.globalAlpha = 1.0;
+    
+    predictions.forEach(pred => {
+      if (pred.x && pred.y) {
+        const radius = Math.min(img.width, img.height) * 0.1;
+        const grd = ctx.createRadialGradient(
+          pred.x, pred.y, 0, 
+          pred.x, pred.y, radius
+        );
+        
+        grd.addColorStop(0, 'rgba(255, 0, 0, 0.8)');
+        grd.addColorStop(0.5, 'rgba(255, 255, 0, 0.4)');
+        grd.addColorStop(1, 'rgba(0, 0, 255, 0)');
+        
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(pred.x, pred.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    
+    return canvas.toBuffer('image/jpeg', { quality: 0.9 });
+  } catch (err) {
+    console.error('Error generating heatmap:', err);
+    throw err;
+  }
+}
+
+io.on('connection', (socket) => {
   socket.on('frame', (data) => {
     if (!data || !data.imageBase64) {
       return socket.emit('prediction', { success: false, error: 'No frame provided' });
@@ -202,8 +254,16 @@ io.on('connection', (socket) => {
     processFrameAndEmit(socket, data.imageBase64);
   });
 
+  socket.on('updateThreshold', (data) => {
+    if (data && data.threshold) {
+      ALERT_THRESHOLD = parseInt(data.threshold);
+      console.log(`Threshold updated to ${ALERT_THRESHOLD}`);
+      io.emit('thresholdUpdated', { threshold: ALERT_THRESHOLD });
+    }
+  });
+
   socket.on('disconnect', () => {
-    // console.log('Client disconnected', socket.id);
+    console.log('Client disconnected', socket.id);
   });
 });
 

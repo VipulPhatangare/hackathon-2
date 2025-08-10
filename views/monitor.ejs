@@ -28,14 +28,31 @@
       flex-direction: row;
       gap: 20px;
     }
-    .monitor-grid .annotated {
+    .image-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
       flex: 1;
       min-width: 0;
     }
     .monitor-grid .annotated img { 
       max-width: 100%;
       height: auto;
-      max-height: 70vh;
+      max-height: 60vh;
+      object-fit: contain;
+      border-radius:6px; 
+      background:#ddd; 
+      display: block;
+      margin: 0 auto;
+    }
+    .heatmap-container {
+      width: 100%;
+      max-height: 60vh;
+      position: relative;
+    }
+    .heatmap {
+      max-width: 100%;
+      max-height: 100%;
       object-fit: contain;
       border-radius:6px; 
       background:#ddd; 
@@ -47,17 +64,41 @@
       max-width: 300px;
     }
     .count { 
-      font-size: clamp(1.5rem, 3vw, 2rem); 
+      font-size: clamp(2rem, 5vw, 3rem); 
       font-weight:700; 
       margin:12px 0; 
+      text-align: center;
+      color: #2c3e50;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 8px;
     }
-    .pred-list { 
-      max-height:60vh; 
-      overflow:auto; 
-      font-size:14px; 
-      background:#fafafa; 
-      padding:8px; 
-      border-radius:6px; 
+    .threshold-control {
+      margin: 15px 0;
+      padding: 10px;
+      background: #f5f5f5;
+      border-radius: 5px;
+    }
+    .alert-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #ff4444;
+      color: white;
+      padding: 20px 40px;
+      border-radius: 8px;
+      font-size: 1.5rem;
+      font-weight: bold;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      z-index: 1000;
+      display: none;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -50%) scale(1.05); }
+      100% { transform: translate(-50%, -50%) scale(1); }
     }
     
     @media (max-width: 768px) {
@@ -67,8 +108,9 @@
       .summary {
         max-width: 100%;
       }
-      .monitor-grid .annotated img {
-        max-height: 50vh;
+      .monitor-grid .annotated img,
+      .heatmap {
+        max-height: 40vh;
       }
     }
   </style>
@@ -76,19 +118,34 @@
 <body>
   <div class="container">
     <h1>Monitor — Live Output</h1>
-    <p>Shows annotated image and count from Roboflow.</p>
+    <p>Shows annotated image and heatmap from Roboflow.</p>
 
     <div class="monitor-grid">
-      <div class="annotated">
-        <h3>Annotated Image</h3>
-        <img id="annotatedImg" alt="Annotated" />
+      <div class="image-grid">
+        <div class="annotated">
+          <h3>Annotated Image</h3>
+          <img id="annotatedImg" alt="Annotated" />
+        </div>
+        <div class="heatmap-container">
+          <h3>Heatmap</h3>
+          <canvas id="heatmapCanvas" class="heatmap"></canvas>
+        </div>
       </div>
       <div class="summary">
         <h3>Detection Summary</h3>
-        <div id="countDisplay" class="count">Count: 0</div>
-        <div id="predList" class="pred-list"></div>
+        <div id="countDisplay" class="count">0</div>
+        <div class="threshold-control">
+          <label for="thresholdInput">Alert Threshold:</label>
+          <input type="number" id="thresholdInput" min="1" max="50" value="5">
+          <button id="updateThreshold">Update</button>
+        </div>
       </div>
     </div>
+  </div>
+
+  <!-- Alert Popup -->
+  <div id="alertPopup" class="alert-popup">
+    CROWD ALERT! Threshold Exceeded
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -96,13 +153,101 @@
     document.addEventListener('DOMContentLoaded', () => {
       const annotatedImg = document.getElementById('annotatedImg');
       const countDisplay = document.getElementById('countDisplay');
-      const predList = document.getElementById('predList');
+      const heatmapCanvas = document.getElementById('heatmapCanvas');
+      const heatmapCtx = heatmapCanvas.getContext('2d');
+      const alertPopup = document.getElementById('alertPopup');
+      const thresholdInput = document.getElementById('thresholdInput');
+      const updateThresholdBtn = document.getElementById('updateThreshold');
 
       const socket = io();
+      let currentThreshold = 5;
+      let alertActive = false;
+      let alertTimeout = null;
 
       socket.on('connect', () => {
         console.log('Connected monitor socket', socket.id);
       });
+
+      // Update threshold from server
+      socket.on('thresholdUpdated', (data) => {
+        currentThreshold = data.threshold;
+        thresholdInput.value = currentThreshold;
+      });
+
+      // Handle threshold updates
+      updateThresholdBtn.addEventListener('click', () => {
+        const newThreshold = parseInt(thresholdInput.value);
+        if (newThreshold > 0) {
+          socket.emit('updateThreshold', { threshold: newThreshold });
+        }
+      });
+
+      function showAlert() {
+        if (alertActive) return;
+        
+        alertActive = true;
+        alertPopup.style.display = 'block';
+        
+        // Auto-hide after 5 seconds
+        alertTimeout = setTimeout(() => {
+          hideAlert();
+        }, 5000);
+      }
+
+      function hideAlert() {
+        alertActive = false;
+        alertPopup.style.display = 'none';
+        if (alertTimeout) {
+          clearTimeout(alertTimeout);
+          alertTimeout = null;
+        }
+      }
+
+      function generateHeatmap(predictions, width, height) {
+        heatmapCanvas.width = width;
+        heatmapCanvas.height = height;
+        
+        heatmapCtx.fillStyle = 'rgba(0, 128, 0, 0.3)';
+        heatmapCtx.fillRect(0, 0, width, height);
+        
+        if (predictions.length === 0) return;
+        
+        const heatBuffer = document.createElement('canvas');
+        heatBuffer.width = width;
+        heatBuffer.height = height;
+        const bufferCtx = heatBuffer.getContext('2d');
+        
+        const radius = Math.min(width, height) * 0.1;
+        predictions.forEach(pred => {
+          if (pred.x && pred.y) {
+            const grd = bufferCtx.createRadialGradient(
+              pred.x, pred.y, 0, 
+              pred.x, pred.y, radius
+            );
+            
+            grd.addColorStop(0, 'rgba(255, 0, 0, 0.8)');
+            grd.addColorStop(1, 'rgba(255, 0, 0, 0)');
+            
+            bufferCtx.fillStyle = grd;
+            bufferCtx.beginPath();
+            bufferCtx.arc(pred.x, pred.y, radius, 0, Math.PI * 2);
+            bufferCtx.fill();
+          }
+        });
+        
+        applyBlur(heatBuffer, bufferCtx, 15);
+        heatmapCtx.drawImage(heatBuffer, 0, 0);
+      }
+
+      function applyBlur(canvas, ctx, radius) {
+        ctx.globalAlpha = 0.5;
+        for (let i = 0; i < radius; i++) {
+          ctx.filter = 'blur(2px)';
+          ctx.drawImage(canvas, 0, 0);
+        }
+        ctx.globalAlpha = 1.0;
+        ctx.filter = 'none';
+      }
 
       socket.on('prediction', (data) => {
         console.log('Prediction received:', data);
@@ -110,23 +255,24 @@
         if (data.success) {
           if (data.annotatedImage) {
             annotatedImg.src = 'data:image/png;base64,' + data.annotatedImage;
-            // Force reflow to ensure image is properly displayed
-            annotatedImg.style.display = 'none';
-            annotatedImg.offsetHeight; // Trigger reflow
-            annotatedImg.style.display = 'block';
+            annotatedImg.onload = () => {
+              if (data.predictions) {
+                generateHeatmap(
+                  data.predictions, 
+                  annotatedImg.naturalWidth, 
+                  annotatedImg.naturalHeight
+                );
+              }
+            };
           } else {
             annotatedImg.src = '';
           }
-          countDisplay.textContent = 'Count: ' + (data.count ?? 0);
-
-          if (data.predictions && data.predictions.length) {
-            predList.innerHTML = '';
-            const sorted = [...data.predictions].sort((a,b) => (b.confidence||0) - (a.confidence||0));
-            sorted.forEach(p => {
-              const div = document.createElement('div');
-              div.textContent = `${p.class || 'obj'} — ${(Math.round((p.confidence||0)*100))}%`;
-              predList.appendChild(div);
-            });
+          
+          countDisplay.textContent = data.count ?? 0;
+          
+          // Check threshold and show alert if needed
+          if (data.count >= currentThreshold) {
+            showAlert();
           }
         } else {
           console.warn('Prediction error', data.error);
