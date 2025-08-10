@@ -58,7 +58,7 @@ app.post('/predict', upload.single('image'), async (req, res) => {
 
     const resp = await axios.post(
       ROBOFLOW_ENDPOINT,
-      { api_key: ROBOFLOW_API_KEY, inputs: { image: { type: 'base64', value: base64 } } },
+      { api_key: ROBOFLOW_API_KEY, inputs: { image: { type: 'base64', value: base64 }, confidence: 0.2} },
       { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
     );
 
