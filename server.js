@@ -22,8 +22,8 @@ if (!ROBOFLOW_ENDPOINT || !ROBOFLOW_API_KEY) {
 }
 
 // Alert threshold system
-let ALERT_THRESHOLD = 5; // Default threshold
-const ALERT_COOLDOWN = 5 * 60 * 1000; // 5 minutes cooldown
+let ALERT_THRESHOLD = 5;
+const ALERT_COOLDOWN = 5 * 60 * 1000;
 let lastAlertTime = 0;
 
 // views + static
@@ -43,14 +43,14 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${safe}`);
   }
 });
-const upload = multer({ storage, limits: { fileSize: 12 * 1024 * 1024 } });
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 // ROUTES
-app.get('/', (req, res) => {
+app.get('/input', (req, res) => {
   res.render('input', { title: 'Crowd Count - Input' });
 });
 
-app.get('/monitor', (req, res) => {
+app.get('/', (req, res) => {
   res.render('monitor', { title: 'Crowd Count - Monitor' });
 });
 
@@ -63,7 +63,7 @@ app.post('/predict', upload.single('image'), async (req, res) => {
 
     const resp = await axios.post(
       ROBOFLOW_ENDPOINT,
-      { api_key: ROBOFLOW_API_KEY, inputs: { image: { type: 'base64', value: base64 }, confidence: 0.2} },
+      { api_key: ROBOFLOW_API_KEY, inputs: { image: { type: 'base64', value: base64 }, confidence: 0.3} },
       { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
     );
 
@@ -76,12 +76,17 @@ app.post('/predict', upload.single('image'), async (req, res) => {
       console.log(`ALERT: Threshold exceeded (${count} people)`);
     }
     
+    // Process images
+    const processedImage = await drawDotsOnImage(buf, output.predictions?.predictions || []);
+    const heatmapImage = await generateHeatmap(buf, output.predictions?.predictions || []);
+    
     res.json({
       success: true,
       originalImage: `/uploads/${req.file.filename}`,
       count: count,
-      annotatedImage: output.output_image?.value ?? null,
-      predictions: output.predictions ?? []
+      annotatedImage: processedImage.toString('base64'),
+      heatmapImage: heatmapImage.toString('base64'),
+      predictions: output.predictions?.predictions || []
     });
   } catch (err) {
     console.error('Predict error:', err?.response?.data || err.message);
@@ -98,7 +103,7 @@ const queue = [];
 async function callRoboflowWithBase64(base64) {
   const body = {
     api_key: ROBOFLOW_API_KEY,
-    inputs: { image: { type: 'base64', value: base64 } }
+    inputs: { image: { type: 'base64', value: base64 }, confidence: 0.3 }
   };
   const resp = await axios.post(ROBOFLOW_ENDPOINT, body, { 
     headers: { 'Content-Type': 'application/json' }, 
@@ -125,19 +130,18 @@ async function processFrameAndEmit(clientSocket, frameBase64) {
     if (count >= ALERT_THRESHOLD && Date.now() - lastAlertTime > ALERT_COOLDOWN) {
       lastAlertTime = Date.now();
       console.log(`ALERT: Threshold exceeded (${count} people)`);
+      io.emit('alert', { count, threshold: ALERT_THRESHOLD });
     }
     
     // Process images
     const processedImage = await drawDotsOnImage(buf, predictions);
-    const annotatedImageBase64 = processedImage.toString('base64');
     const heatmapImage = await generateHeatmap(buf, predictions);
-    const heatmapImageBase64 = heatmapImage.toString('base64');
     
     const payload = {
       success: true,
       count: count,
-      annotatedImage: annotatedImageBase64,
-      heatmapImage: heatmapImageBase64,
+      annotatedImage: processedImage.toString('base64'),
+      heatmapImage: heatmapImage.toString('base64'),
       predictions: predictions,
       threshold: ALERT_THRESHOLD
     };
@@ -158,6 +162,7 @@ async function processFrameAndEmit(clientSocket, frameBase64) {
   }
 }
 
+// Image processing functions
 async function drawDotsOnImage(imageBuffer, predictions) {
   try {
     if (!Array.isArray(predictions)) {
@@ -241,7 +246,11 @@ async function generateHeatmap(imageBuffer, predictions) {
   }
 }
 
+// Socket.IO Events
 io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
+  
+  // Live frame processing
   socket.on('frame', (data) => {
     if (!data || !data.imageBase64) {
       return socket.emit('prediction', { success: false, error: 'No frame provided' });
@@ -250,10 +259,45 @@ io.on('connection', (socket) => {
     if (queue.length > 60) {
       return socket.emit('prediction', { success: false, error: 'Server busy, frame dropped' });
     }
+    
     socket.emit('ack', { received: true });
     processFrameAndEmit(socket, data.imageBase64);
   });
 
+  // Model testing
+  socket.on('testModel', async (data) => {
+    try {
+      if (!data || !data.imageBase64) {
+        return socket.emit('testPrediction', { success: false, error: 'No test data provided' });
+      }
+
+      const buf = Buffer.from(data.imageBase64, 'base64');
+      const rf = await callRoboflowWithBase64(data.imageBase64);
+      
+      const output = rf.outputs?.[0] || {};
+      const predictions = output.predictions?.predictions || [];
+      const count = output.count_objects || predictions.length;
+      
+      // Process images
+      const processedImage = await drawDotsOnImage(buf, predictions);
+      
+      socket.emit('testPrediction', {
+        success: true,
+        testType: data.type,
+        count: count,
+        annotatedImage: processedImage.toString('base64'),
+        predictions: predictions
+      });
+    } catch (err) {
+      console.error('Test model error:', err);
+      socket.emit('testPrediction', {
+        success: false,
+        error: err.message || 'Test failed'
+      });
+    }
+  });
+
+  // Threshold updates
   socket.on('updateThreshold', (data) => {
     if (data && data.threshold) {
       ALERT_THRESHOLD = parseInt(data.threshold);
@@ -263,15 +307,17 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('Client disconnected', socket.id);
+    console.log('Client disconnected:', socket.id);
   });
 });
 
+// Error handling
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Start server
 server.listen(PORT, () => {
   console.log(`Server running on http://0.0.0.0:${PORT}`);
 });

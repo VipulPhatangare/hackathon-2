@@ -3,26 +3,335 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title><%= title %></title>
-  <link rel="stylesheet" href="/css/style.css" />
+  <title>Crowd Count — Mobile Input</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary: #4361ee;
+      --secondary: #3f37c9;
+      --danger: #f72585;
+      --dark: #212529;
+      --light: #f8f9fa;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f1f5f9;
+      color: var(--dark);
+      line-height: 1.6;
+      padding: 1rem;
+    }
+    
+    .container {
+      max-width: 100%;
+      background: white;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      padding: 1.5rem;
+    }
+    
+    h1 {
+      color: var(--primary);
+      margin-bottom: 1rem;
+      font-size: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    h1 i {
+      font-size: 1.25rem;
+    }
+    
+    p {
+      color: #64748b;
+      margin-bottom: 1.5rem;
+    }
+    
+    .video-container {
+      position: relative;
+      width: 100%;
+      margin-bottom: 1.5rem;
+      border-radius: 0.5rem;
+      overflow: hidden;
+      background: black;
+    }
+    
+    #phoneVideo {
+      width: 100%;
+      display: block;
+    }
+    
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    
+    .control-group label {
+      font-weight: 500;
+      color: var(--dark);
+    }
+    
+    .interval-control {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    #intervalSec {
+      padding: 0.5rem;
+      border: 1px solid #cbd5e0;
+      border-radius: 0.375rem;
+      width: 4rem;
+      text-align: center;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    button {
+      flex: 1;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 0.375rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all 0.2s;
+    }
+    
+    #startBtn {
+      background: var(--primary);
+      color: white;
+    }
+    
+    #startBtn:hover {
+      background: var(--secondary);
+    }
+    
+    #stopBtn {
+      background: #e2e8f0;
+      color: var(--dark);
+    }
+    
+    #stopBtn:hover {
+      background: #cbd5e0;
+    }
+    
+    #status {
+      padding: 0.75rem;
+      background: #edf2f7;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      text-align: center;
+    }
+    
+    .status-connected {
+      background: #dcfce7;
+      color: #166534;
+    }
+    
+    .status-error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    
+    canvas {
+      display: none;
+    }
+    
+    @media (min-width: 768px) {
+      body {
+        max-width: 500px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="container">
-    <h1>Phone Input — Crowd Count</h1>
-    <p>Make sure your phone and laptop are on the same Wi-Fi. Open this page on your phone.</p>
-
-    <div class="controls">
-      <label>Interval (seconds): <input id="intervalSec" type="number" min="1" value="5"></label>
-      <button id="startBtn">Start Streaming</button>
-      <button id="stopBtn" disabled>Stop</button>
-      <div id="status" class="status">Idle</div>
+    <h1><i class="fas fa-mobile-alt"></i> Crowd Count — Mobile Input</h1>
+    <p>Point your phone's camera at the crowd area. Make sure your phone and monitoring dashboard are on the same network.</p>
+    
+    <div class="video-container">
+      <video id="phoneVideo" autoplay playsinline muted></video>
     </div>
-
-    <video id="phoneVideo" autoplay playsinline muted></video>
-    <canvas id="phoneCanvas" style="display:none"></canvas>
+    
+    <div class="controls">
+      <div class="control-group">
+        <label for="intervalSec">Capture Interval (seconds):</label>
+        <div class="interval-control">
+          <input type="number" id="intervalSec" min="1" max="60" value="3">
+        </div>
+      </div>
+      
+      <div class="button-group">
+        <button id="startBtn"><i class="fas fa-play"></i> Start</button>
+        <button id="stopBtn" disabled><i class="fas fa-stop"></i> Stop</button>
+      </div>
+      
+      <div id="status">Ready to connect</div>
+    </div>
+    
+    <canvas id="phoneCanvas"></canvas>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/input.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const statusEl = document.getElementById('status');
+      const video = document.getElementById('phoneVideo');
+      const canvas = document.getElementById('phoneCanvas');
+      const intervalInput = document.getElementById('intervalSec');
+
+      let socket = null;
+      let stream = null;
+      let timer = null;
+      let lastFrameTime = 0;
+
+      function setStatus(txt, isError = false) {
+        statusEl.textContent = txt;
+        statusEl.className = isError ? 'status-error' : '';
+        if (socket && socket.connected) {
+          statusEl.classList.add('status-connected');
+        }
+      }
+
+      async function startStreaming() {
+        try {
+          setStatus('Accessing camera...');
+          
+          const constraints = {
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: { ideal: "environment" }
+            },
+            audio: false
+          };
+          
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          video.srcObject = stream;
+          await video.play();
+
+          // Connect to server
+          socket = io();
+          
+          socket.on('connect', () => {
+            setStatus(`Connected to server (${new Date().toLocaleTimeString()})`);
+          });
+
+          socket.on('disconnect', () => {
+            setStatus('Disconnected from server', true);
+          });
+
+          socket.on('connect_error', (err) => {
+            setStatus(`Connection error: ${err.message}`, true);
+          });
+
+          socket.on('prediction', (data) => {
+            if (data && data.success) {
+              lastFrameTime = Date.now();
+            }
+          });
+
+          // Start capture loop
+          scheduleCapture();
+
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+        } catch (err) {
+          console.error(err);
+          setStatus('Error: ' + err.message, true);
+        }
+      }
+
+      function stopStreaming() {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+          stream = null;
+        }
+        if (socket) {
+          socket.disconnect();
+          socket = null;
+        }
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        setStatus('Streaming stopped');
+      }
+
+      function scheduleCapture() {
+        const seconds = Math.max(1, Math.min(60, parseInt(intervalInput.value || '3', 10)));
+        const intervalMs = seconds * 1000;
+
+        // Initial capture
+        captureFrame();
+
+        // Set up periodic capture
+        timer = setInterval(() => {
+          captureFrame();
+        }, intervalMs);
+      }
+
+      function captureFrame() {
+        if (!video || video.readyState < 2) return;
+        
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Send as jpeg with quality setting to reduce size
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        const base64 = dataUrl.split(',')[1];
+
+        if (socket && socket.connected) {
+          socket.emit('frame', { 
+            imageBase64: base64,
+            timestamp: Date.now()
+          });
+          setStatus(`Frame sent at ${new Date().toLocaleTimeString()}`);
+        }
+      }
+
+      startBtn.addEventListener('click', startStreaming);
+      stopBtn.addEventListener('click', stopStreaming);
+      
+      // Update interval in real-time
+      intervalInput.addEventListener('change', () => {
+        if (timer) {
+          clearInterval(timer);
+          scheduleCapture();
+        }
+      });
+    });
+  </script>
 </body>
 </html>

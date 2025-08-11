@@ -3,190 +3,878 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Crowd Monitor — Live Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
+    :root {
+      --primary: #4361ee;
+      --primary-light: #e0e7ff;
+      --secondary: #3f37c9;
+      --danger: #f72585;
+      --danger-light: #fce4ec;
+      --success: #4cc9f0;
+      --success-light: #e0f7fa;
+      --warning: #f8961e;
+      --warning-light: #fff3e0;
+      --dark: #212529;
+      --light: #f8f9fa;
+      --gray: #6c757d;
+      --gray-light: #e9ecef;
+      --low: #4cc9f0;
+      --medium: #f8961e;
+      --high: #f72585;
+      --border-radius: 12px;
+      --box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+      --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
     body { 
-      font-family: Arial, Helvetica, sans-serif; 
-      background:#f6f8fb; 
-      color:#222; 
-      margin:0; 
-      padding:20px; 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #f8fafc; 
+      color: var(--dark); 
+      line-height: 1.6;
     }
-    .container { 
-      max-width:90vw; 
-      margin:0 auto; 
-      background:#fff; 
-      padding:18px; 
-      border-radius:8px; 
-      box-shadow:0 6px 18px rgba(0,0,0,0.06); 
-    }
-    h1{ 
-      margin-top:0; 
-      font-size: clamp(1.5rem, 3vw, 2rem);
-    }
-    .monitor-grid { 
-      display: flex;
-      flex-direction: row;
-      gap: 20px;
-    }
-    .image-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-      flex: 1;
-      min-width: 0;
-    }
-    .monitor-grid .annotated img { 
-      max-width: 100%;
-      height: auto;
-      max-height: 60vh;
-      object-fit: contain;
-      border-radius:6px; 
-      background:#ddd; 
-      display: block;
+    
+    .dashboard {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+      padding: 1.5rem;
+      max-width: 1800px;
       margin: 0 auto;
     }
-    .heatmap-container {
+    
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.25rem 2rem;
+      background: white;
+      border-radius: var(--border-radius);
+      box-shadow: var(--box-shadow);
+      margin-bottom: 1rem;
+    }
+    
+    .header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    .header h1 i {
+      color: var(--primary);
+      font-size: 1.5rem;
+    }
+    
+    .last-updated {
+      background: var(--primary-light);
+      color: var(--primary);
+      padding: 0.5rem 1rem;
+      border-radius: 50px;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    
+    .card {
+      background: white;
+      border-radius: var(--border-radius);
+      box-shadow: var(--box-shadow);
+      overflow: hidden;
+      transition: var(--transition);
+    }
+    
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.1);
+    }
+    
+    .card-header {
+      padding: 1.25rem 1.75rem;
+      border-bottom: 1px solid var(--gray-light);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .card-header h3 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--dark);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    .card-header i {
+      font-size: 1.1rem;
+      color: var(--primary);
+    }
+    
+    .card-body {
+      padding: 1.75rem;
+    }
+    
+    /* Tabs */
+    .monitor-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--gray-light);
+      margin-bottom: 1.5rem;
+      padding: 0 1.5rem;
+    }
+    
+    .monitor-tab {
+      padding: 0.85rem 1.5rem;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: var(--transition);
+      font-weight: 500;
+      color: var(--gray);
+      position: relative;
+      margin-bottom: -1px;
+    }
+    
+    .monitor-tab.active {
+      border-bottom-color: var(--primary);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    
+    .monitor-tab:hover:not(.active) {
+      color: var(--dark);
+      background: var(--primary-light);
+    }
+    
+    .monitor-content {
+      display: none;
+    }
+    
+    .monitor-content.active {
+      display: block;
+    }
+    
+    /* Visualization Grid */
+    .visualization-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+      gap: 1.75rem;
+    }
+    
+    .visualization {
+      position: relative;
+      background: #edf2f7;
+      border-radius: var(--border-radius);
+      overflow: hidden;
+      aspect-ratio: 16/9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .visualization img, 
+    .visualization canvas,
+    .visualization video {
       width: 100%;
-      max-height: 60vh;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    
+    /* Crowd Level Indicators */
+    .crowd-level-container {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 1.5rem;
+      background: var(--gray-light);
+      border-radius: var(--border-radius);
+      padding: 0.5rem;
+    }
+    
+    .crowd-level-item {
+      flex: 1;
+      text-align: center;
+      padding: 0.75rem;
+      border-radius: calc(var(--border-radius) - 4px);
+      transition: var(--transition);
+    }
+    
+    .crowd-level-item.active {
+      transform: translateY(-3px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    .crowd-level-item.low {
+      background: var(--success-light);
+      color: var(--success);
+    }
+    
+    .crowd-level-item.medium {
+      background: var(--warning-light);
+      color: var(--warning);
+    }
+    
+    .crowd-level-item.high {
+      background: var(--danger-light);
+      color: var(--danger);
+    }
+    
+    .crowd-level-item i {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .crowd-level-item .label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .crowd-level-item .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-top: 0.25rem;
+    }
+    
+    /* Count Display */
+    .count-display {
+      text-align: center;
+      padding: 2rem 1rem;
       position: relative;
     }
-    .heatmap {
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
-      border-radius:6px; 
-      background:#ddd; 
-      display: block;
-      margin: 0 auto;
+    
+    .count-value {
+      font-size: 5rem;
+      font-weight: 800;
+      color: var(--primary);
+      line-height: 1;
+      margin-bottom: 0.5rem;
+      position: relative;
+      display: inline-block;
     }
-    .summary { 
-      min-width:220px; 
-      max-width: 300px;
+    
+    .count-value::after {
+      content: '';
+      position: absolute;
+      bottom: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 60px;
+      height: 4px;
+      background: var(--primary);
+      border-radius: 2px;
     }
-    .count { 
-      font-size: clamp(2rem, 5vw, 3rem); 
-      font-weight:700; 
-      margin:12px 0; 
-      text-align: center;
-      color: #2c3e50;
-      padding: 10px;
-      background: #f8f9fa;
-      border-radius: 8px;
+    
+    .count-label {
+      font-size: 1rem;
+      color: var(--gray);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 500;
     }
+    
+    /* Threshold Control */
     .threshold-control {
-      margin: 15px 0;
-      padding: 10px;
-      background: #f5f5f5;
-      border-radius: 5px;
+      padding: 1.5rem;
+      background: var(--gray-light);
+      border-radius: var(--border-radius);
     }
+    
+    .threshold-control label {
+      display: block;
+      margin-bottom: 0.75rem;
+      font-weight: 600;
+      color: var(--dark);
+    }
+    
+    .threshold-slider {
+      width: 100%;
+      height: 8px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: #d1d5db;
+      border-radius: 4px;
+      outline: none;
+      margin: 1rem 0;
+    }
+    
+    .threshold-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    
+    .threshold-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.1);
+      box-shadow: 0 0 0 4px rgba(67, 97, 238, 0.2);
+    }
+    
+    .threshold-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: -0.5rem;
+    }
+    
+    .threshold-label {
+      font-size: 0.85rem;
+      color: var(--gray);
+      font-weight: 500;
+    }
+    
+    /* Alert Status */
+    .alert-status {
+      padding: 1.5rem;
+      text-align: center;
+      margin-top: 1.5rem;
+      background: var(--gray-light);
+      border-radius: var(--border-radius);
+    }
+    
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.85rem 1.5rem;
+      border-radius: 50px;
+      background: var(--success-light);
+      color: #10b981;
+      font-weight: 600;
+      transition: var(--transition);
+    }
+    
+    .status-indicator i {
+      font-size: 1.25rem;
+    }
+    
+    .status-indicator.warning {
+      background: var(--warning-light);
+      color: var(--warning);
+    }
+    
+    .status-indicator.danger {
+      background: var(--danger-light);
+      color: var(--danger);
+    }
+    
+    /* Upload Areas */
+    .upload-area {
+      border: 2px dashed #cbd5e0;
+      border-radius: var(--border-radius);
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: var(--transition);
+      background: white;
+    }
+    
+    .upload-area:hover {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+    
+    .upload-area i {
+      font-size: 3rem;
+      color: var(--primary);
+      margin-bottom: 1rem;
+    }
+    
+    .upload-area p {
+      font-size: 1.1rem;
+      color: var(--dark);
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+    
+    .upload-area .small {
+      font-size: 0.85rem;
+      color: var(--gray);
+    }
+    
+    .upload-area input[type="file"] {
+      display: none;
+    }
+    
+    /* Loader */
+    .loader {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255,255,255,0.9);
+      z-index: 10;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      border-radius: var(--border-radius);
+    }
+    
+    .loader.active {
+      display: flex;
+    }
+    
+    .loader-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 1.5rem;
+    }
+    
+    .loader-text {
+      color: var(--dark);
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Pulse Animation */
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    
+    /* Alert Popup */
     .alert-popup {
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      background: #ff4444;
+      background: var(--danger);
       color: white;
-      padding: 20px 40px;
-      border-radius: 8px;
-      font-size: 1.5rem;
-      font-weight: bold;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      padding: 2rem 4rem;
+      border-radius: var(--border-radius);
+      font-size: 1.75rem;
+      font-weight: 700;
+      box-shadow: 0 20px 40px rgba(239, 68, 68, 0.3);
       z-index: 1000;
       display: none;
-      animation: pulse 1s infinite;
+      animation: pulse 1.5s infinite;
+      text-align: center;
+      min-width: 400px;
     }
-    @keyframes pulse {
-      0% { transform: translate(-50%, -50%) scale(1); }
-      50% { transform: translate(-50%, -50%) scale(1.05); }
-      100% { transform: translate(-50%, -50%) scale(1); }
+    
+    .alert-popup i {
+      display: block;
+      font-size: 4rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    /* Responsive Adjustments */
+    @media (max-width: 1200px) {
+      .visualization-grid {
+        grid-template-columns: 1fr;
+      }
     }
     
     @media (max-width: 768px) {
-      .monitor-grid {
+      .dashboard {
+        padding: 1rem;
+      }
+      
+      .header {
         flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+        padding: 1.5rem;
       }
-      .summary {
-        max-width: 100%;
+      
+      .last-updated {
+        width: 100%;
+        text-align: center;
       }
-      .monitor-grid .annotated img,
-      .heatmap {
-        max-height: 40vh;
+      
+      .count-value {
+        font-size: 3.5rem;
+      }
+      
+      .monitor-tabs {
+        flex-wrap: wrap;
+      }
+      
+      .monitor-tab {
+        flex: 1;
+        text-align: center;
+        padding: 0.75rem;
+      }
+      
+      .crowd-level-container {
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      
+      .alert-popup {
+        min-width: 300px;
+        font-size: 1.25rem;
+        padding: 1.5rem 2rem;
+      }
+      
+      .alert-popup i {
+        font-size: 3rem;
       }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Monitor — Live Output</h1>
-    <p>Shows annotated image and heatmap from Roboflow.</p>
-
-    <div class="monitor-grid">
-      <div class="image-grid">
-        <div class="annotated">
-          <h3>Annotated Image</h3>
-          <img id="annotatedImg" alt="Annotated" />
-        </div>
-        <div class="heatmap-container">
-          <h3>Heatmap</h3>
-          <canvas id="heatmapCanvas" class="heatmap"></canvas>
+  <div class="dashboard">
+    <header class="header">
+      <h1><i class="fas fa-users"></i> Crowd Monitoring Dashboard</h1>
+      <div class="last-updated" id="lastUpdated">Last updated: Just now</div>
+    </header>
+    
+    <div class="card">
+      <div class="monitor-tabs">
+        <div class="monitor-tab active" data-tab="live">Live Feed</div>
+        <div class="monitor-tab" data-tab="image">Image Analysis</div>
+        <div class="monitor-tab" data-tab="video">Video Analysis</div>
+      </div>
+      
+      <!-- Live Feed Content -->
+      <div class="monitor-content active" id="liveContent">
+        <div class="visualization-grid">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fas fa-video"></i> Live Camera Feed</h3>
+            </div>
+            <div class="card-body">
+              <div class="visualization">
+                <img id="liveFeed" alt="Live camera feed" />
+                <div class="loader" id="liveLoader">
+                  <div class="loader-spinner"></div>
+                  <div class="loader-text">Processing live feed...</div>
+                </div>
+              </div>
+              
+              <!-- Crowd Level Indicators -->
+              <div class="crowd-level-container" id="crowdLevelContainer">
+                <div class="crowd-level-item low">
+                  <i class="fas fa-user"></i>
+                  <div class="label">Low</div>
+                  <div class="value" id="lowCount">0</div>
+                </div>
+                <div class="crowd-level-item medium">
+                  <i class="fas fa-users"></i>
+                  <div class="label">Medium</div>
+                  <div class="value" id="mediumCount">0</div>
+                </div>
+                <div class="crowd-level-item high">
+                  <i class="fas fa-user-friends"></i>
+                  <div class="label">High</div>
+                  <div class="value" id="highCount">0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fas fa-fire"></i> Density Heatmap</h3>
+            </div>
+            <div class="card-body">
+              <div class="visualization">
+                <canvas id="heatmapCanvas"></canvas>
+                <div class="loader" id="heatmapLoader">
+                  <div class="loader-spinner"></div>
+                  <div class="loader-text">Generating heatmap...</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="summary">
-        <h3>Detection Summary</h3>
-        <div id="countDisplay" class="count">0</div>
-        <div class="threshold-control">
-          <label for="thresholdInput">Alert Threshold:</label>
-          <input type="number" id="thresholdInput" min="1" max="50" value="5">
-          <button id="updateThreshold">Update</button>
+      
+      <!-- Image Analysis Content -->
+      <div class="monitor-content" id="imageContent">
+        <div class="card-body">
+          <div class="upload-area" id="imageUploadArea">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <p>Click to upload an image or drag and drop</p>
+            <p class="small">Supports JPG, PNG (Max 5MB)</p>
+            <input type="file" id="imageInput" accept="image/*">
+          </div>
+          
+          <div class="visualization-grid" id="imageResults" style="display: none;">
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fas fa-image"></i> Original Image</h3>
+              </div>
+              <div class="card-body">
+                <div class="visualization">
+                  <img id="originalImage" alt="Original image" />
+                  <div class="loader" id="imageLoader">
+                    <div class="loader-spinner"></div>
+                    <div class="loader-text">Processing image...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fas fa-project-diagram"></i> Analyzed Image</h3>
+              </div>
+              <div class="card-body">
+                <div class="visualization">
+                  <img id="analyzedImage" alt="Analyzed image" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Video Analysis Content -->
+      <div class="monitor-content" id="videoContent">
+        <div class="card-body">
+          <div class="upload-area" id="videoUploadArea">
+            <i class="fas fa-video"></i>
+            <p>Click to upload a video or drag and drop</p>
+            <p class="small">Supports MP4, WebM (Max 20MB)</p>
+            <input type="file" id="videoInput" accept="video/*">
+          </div>
+          
+          <div class="visualization-grid" id="videoResults" style="display: none;">
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fas fa-video"></i> Video Feed</h3>
+              </div>
+              <div class="card-body">
+                <div class="visualization">
+                  <video id="uploadedVideo" controls></video>
+                  <div class="loader" id="videoLoader">
+                    <div class="loader-spinner"></div>
+                    <div class="loader-text">Processing video...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fas fa-project-diagram"></i> Analyzed Frames</h3>
+              </div>
+              <div class="card-body">
+                <div class="visualization">
+                  <img id="analyzedVideoFrame" alt="Analyzed video frame" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Analytics Sidebar -->
+    <div class="analytics-sidebar">
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fas fa-chart-bar"></i> Crowd Analytics</h3>
+        </div>
+        <div class="card-body">
+          <div class="count-display">
+            <div class="count-value" id="countDisplay">0</div>
+            <div class="count-label">Total People Detected</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fas fa-bell"></i> Alert Settings</h3>
+        </div>
+        <div class="card-body">
+          <div class="threshold-control">
+            <label for="thresholdSlider">Crowd Alert Threshold</label>
+            <input type="range" min="1" max="50" value="15" class="threshold-slider" id="thresholdSlider">
+            <div class="threshold-labels">
+              <span class="threshold-label">Low</span>
+              <span class="threshold-label">Medium</span>
+              <span class="threshold-label">High</span>
+            </div>
+          </div>
+          
+          <div class="alert-status">
+            <div class="status-indicator" id="alertStatus">
+              <i class="fas fa-check-circle"></i>
+              <span>No alerts</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </div>
-
+  
   <!-- Alert Popup -->
   <div id="alertPopup" class="alert-popup">
-    CROWD ALERT! Threshold Exceeded
+    <i class="fas fa-exclamation-triangle"></i>
+    CROWD ALERT!<br>
+    Threshold Exceeded
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const annotatedImg = document.getElementById('annotatedImg');
-      const countDisplay = document.getElementById('countDisplay');
+      // DOM Elements
+      const liveFeed = document.getElementById('liveFeed');
       const heatmapCanvas = document.getElementById('heatmapCanvas');
       const heatmapCtx = heatmapCanvas.getContext('2d');
+      const countDisplay = document.getElementById('countDisplay');
       const alertPopup = document.getElementById('alertPopup');
-      const thresholdInput = document.getElementById('thresholdInput');
-      const updateThresholdBtn = document.getElementById('updateThreshold');
-
+      const alertStatus = document.getElementById('alertStatus');
+      const thresholdSlider = document.getElementById('thresholdSlider');
+      const lastUpdatedEl = document.getElementById('lastUpdated');
+      
+      // Crowd level elements
+      const crowdLevelContainer = document.getElementById('crowdLevelContainer');
+      const lowCount = document.getElementById('lowCount');
+      const mediumCount = document.getElementById('mediumCount');
+      const highCount = document.getElementById('highCount');
+      
+      // Loaders
+      const liveLoader = document.getElementById('liveLoader');
+      const heatmapLoader = document.getElementById('heatmapLoader');
+      const imageLoader = document.getElementById('imageLoader');
+      const videoLoader = document.getElementById('videoLoader');
+      
+      // Socket.IO connection
       const socket = io();
-      let currentThreshold = 5;
+      
+      // Variables
+      let currentThreshold = 15;
       let alertActive = false;
       let alertTimeout = null;
-
+      
+      // Initialize
+      setupEventListeners();
+      updateCrowdLevelIndicators(0);
+      
+      function setupEventListeners() {
+        // Threshold slider
+        thresholdSlider.addEventListener('input', updateThreshold);
+        
+        // Monitor tabs
+        document.querySelectorAll('.monitor-tab').forEach(tab => {
+          tab.addEventListener('click', switchMonitorTab);
+        });
+        
+        // Image upload
+        document.getElementById('imageUploadArea').addEventListener('click', () => {
+          document.getElementById('imageInput').click();
+        });
+        document.getElementById('imageInput').addEventListener('change', handleImageUpload);
+        
+        // Video upload
+        document.getElementById('videoUploadArea').addEventListener('click', () => {
+          document.getElementById('videoInput').click();
+        });
+        document.getElementById('videoInput').addEventListener('change', handleVideoUpload);
+        
+        // Drag and drop setup
+        setupDragAndDrop();
+      }
+      
+      // Socket.IO Events
       socket.on('connect', () => {
-        console.log('Connected monitor socket', socket.id);
+        console.log('Connected to server with socket ID:', socket.id);
+        liveLoader.classList.add('active');
+        heatmapLoader.classList.add('active');
       });
 
-      // Update threshold from server
-      socket.on('thresholdUpdated', (data) => {
-        currentThreshold = data.threshold;
-        thresholdInput.value = currentThreshold;
-      });
-
-      // Handle threshold updates
-      updateThresholdBtn.addEventListener('click', () => {
-        const newThreshold = parseInt(thresholdInput.value);
-        if (newThreshold > 0) {
-          socket.emit('updateThreshold', { threshold: newThreshold });
+      socket.on('prediction', (data) => {
+        liveLoader.classList.remove('active');
+        heatmapLoader.classList.remove('active');
+        
+        if (!data) return;
+        
+        // Update last updated time
+        lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        
+        if (data.success) {
+          if (data.annotatedImage) {
+            liveFeed.src = 'data:image/png;base64,' + data.annotatedImage;
+            liveFeed.onload = () => {
+              if (data.predictions) {
+                generateHeatmap(
+                  data.predictions, 
+                  liveFeed.naturalWidth, 
+                  liveFeed.naturalHeight
+                );
+              }
+            };
+          }
+          
+          const count = data.count ?? 0;
+          countDisplay.textContent = count;
+          updateCrowdLevelIndicators(count);
+          
+          // Check threshold and show alert if needed
+          if (count >= currentThreshold) {
+            showAlert();
+          } else if (alertActive) {
+            hideAlert();
+          }
         }
       });
+      
+      socket.on('testPrediction', (data) => {
+        if (data && data.success) {
+          if (data.testType === 'image') {
+            imageLoader.classList.remove('active');
+            document.getElementById('originalImage').src = 'data:image/jpeg;base64,' + data.originalImage;
+            document.getElementById('analyzedImage').src = 'data:image/png;base64,' + data.annotatedImage;
+            document.getElementById('imageResults').style.display = 'grid';
+            
+            showNotification(`Image analysis complete: ${data.count} people detected`);
+          } else if (data.testType === 'video') {
+            videoLoader.classList.remove('active');
+            document.getElementById('analyzedVideoFrame').src = 'data:image/png;base64,' + data.annotatedImage;
+            
+            showNotification(`Video frame processed: ${data.count} people detected`);
+          }
+        } else {
+          if (data.testType === 'image') {
+            imageLoader.classList.remove('active');
+          } else if (data.testType === 'video') {
+            videoLoader.classList.remove('active');
+          }
+          showNotification('Analysis failed: ' + (data.error || 'Unknown error'), true);
+        }
+      });
+
+      // Helper Functions
+      function updateThreshold() {
+        currentThreshold = parseInt(thresholdSlider.value);
+        showNotification(`Alert threshold set to ${currentThreshold}`);
+      }
 
       function showAlert() {
         if (alertActive) return;
         
         alertActive = true;
         alertPopup.style.display = 'block';
+        alertStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i><span>Alert active</span>';
+        alertStatus.className = 'status-indicator danger';
         
         // Auto-hide after 5 seconds
         alertTimeout = setTimeout(() => {
@@ -197,87 +885,234 @@
       function hideAlert() {
         alertActive = false;
         alertPopup.style.display = 'none';
+        alertStatus.innerHTML = '<i class="fas fa-check-circle"></i><span>No alerts</span>';
+        alertStatus.className = 'status-indicator';
         if (alertTimeout) {
           clearTimeout(alertTimeout);
           alertTimeout = null;
         }
       }
 
+      function showNotification(message, isError = false) {
+        // In a real app, you might implement toast notifications here
+        console.log(isError ? 'Error:' : 'Notification:', message);
+      }
+
       function generateHeatmap(predictions, width, height) {
         heatmapCanvas.width = width;
         heatmapCanvas.height = height;
         
-        heatmapCtx.fillStyle = 'rgba(0, 128, 0, 0.3)';
+        // Clear canvas
+        heatmapCtx.clearRect(0, 0, width, height);
+        
+        // Draw semi-transparent background
+        heatmapCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
         heatmapCtx.fillRect(0, 0, width, height);
         
         if (predictions.length === 0) return;
         
-        const heatBuffer = document.createElement('canvas');
-        heatBuffer.width = width;
-        heatBuffer.height = height;
-        const bufferCtx = heatBuffer.getContext('2d');
-        
-        const radius = Math.min(width, height) * 0.1;
+        // Create gradient for each prediction
         predictions.forEach(pred => {
           if (pred.x && pred.y) {
-            const grd = bufferCtx.createRadialGradient(
+            const radius = Math.min(width, height) * 0.15;
+            const grd = heatmapCtx.createRadialGradient(
               pred.x, pred.y, 0, 
               pred.x, pred.y, radius
             );
             
-            grd.addColorStop(0, 'rgba(255, 0, 0, 0.8)');
-            grd.addColorStop(1, 'rgba(255, 0, 0, 0)');
+            grd.addColorStop(0, 'rgba(255, 50, 50, 0.8)');
+            grd.addColorStop(0.7, 'rgba(255, 150, 50, 0.3)');
+            grd.addColorStop(1, 'rgba(255, 255, 255, 0)');
             
-            bufferCtx.fillStyle = grd;
-            bufferCtx.beginPath();
-            bufferCtx.arc(pred.x, pred.y, radius, 0, Math.PI * 2);
-            bufferCtx.fill();
+            heatmapCtx.fillStyle = grd;
+            heatmapCtx.beginPath();
+            heatmapCtx.arc(pred.x, pred.y, radius, 0, Math.PI * 2);
+            heatmapCtx.fill();
           }
         });
+      }
+      
+      function updateCrowdLevelIndicators(count) {
+        // Determine crowd levels
+        const lowThreshold = Math.floor(currentThreshold * 0.5);
+        const mediumThreshold = currentThreshold;
+        const highThreshold = Math.floor(currentThreshold * 1.5);
         
-        applyBlur(heatBuffer, bufferCtx, 15);
-        heatmapCtx.drawImage(heatBuffer, 0, 0);
-      }
-
-      function applyBlur(canvas, ctx, radius) {
-        ctx.globalAlpha = 0.5;
-        for (let i = 0; i < radius; i++) {
-          ctx.filter = 'blur(2px)';
-          ctx.drawImage(canvas, 0, 0);
-        }
-        ctx.globalAlpha = 1.0;
-        ctx.filter = 'none';
-      }
-
-      socket.on('prediction', (data) => {
-        console.log('Prediction received:', data);
-        if (!data) return;
-        if (data.success) {
-          if (data.annotatedImage) {
-            annotatedImg.src = 'data:image/png;base64,' + data.annotatedImage;
-            annotatedImg.onload = () => {
-              if (data.predictions) {
-                generateHeatmap(
-                  data.predictions, 
-                  annotatedImg.naturalWidth, 
-                  annotatedImg.naturalHeight
-                );
-              }
-            };
-          } else {
-            annotatedImg.src = '';
-          }
-          
-          countDisplay.textContent = data.count ?? 0;
-          
-          // Check threshold and show alert if needed
-          if (data.count >= currentThreshold) {
-            showAlert();
-          }
+        // Update indicator values
+        lowCount.textContent = Math.min(count, lowThreshold);
+        mediumCount.textContent = Math.min(Math.max(0, count - lowThreshold), mediumThreshold - lowThreshold);
+        highCount.textContent = Math.max(0, count - mediumThreshold);
+        
+        // Highlight active level
+        document.querySelectorAll('.crowd-level-item').forEach(item => {
+          item.classList.remove('active');
+        });
+        
+        if (count >= highThreshold) {
+          document.querySelector('.crowd-level-item.high').classList.add('active');
+        } else if (count >= mediumThreshold) {
+          document.querySelector('.crowd-level-item.medium').classList.add('active');
         } else {
-          console.warn('Prediction error', data.error);
+          document.querySelector('.crowd-level-item.low').classList.add('active');
         }
-      });
+      }
+      
+      // Tab Switching
+      function switchMonitorTab(e) {
+        const tabId = e.currentTarget.getAttribute('data-tab');
+        
+        document.querySelectorAll('.monitor-tab').forEach(tab => {
+          tab.classList.remove('active');
+        });
+        
+        document.querySelectorAll('.monitor-content').forEach(content => {
+          content.classList.remove('active');
+        });
+        
+        e.currentTarget.classList.add('active');
+        document.getElementById(`${tabId}Content`).classList.add('active');
+      }
+      
+      // Image Upload
+      function handleImageUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        if (!file.type.match('image.*')) {
+          showNotification('Please select an image file', true);
+          return;
+        }
+        
+        if (file.size > 5 * 1024 * 1024) {
+          showNotification('Image size must be less than 5MB', true);
+          return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          imageLoader.classList.add('active');
+          
+          // Convert to base64 and send to server
+          const img = new Image();
+          img.onload = function() {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            
+            const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+            
+            // Send to server for testing
+            socket.emit('testModel', {
+              type: 'image',
+              imageBase64: base64,
+              originalImage: base64 // Send original for comparison
+            });
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+      
+      // Video Upload
+      function handleVideoUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        if (!file.type.match('video.*')) {
+          showNotification('Please select a video file', true);
+          return;
+        }
+        
+        if (file.size > 20 * 1024 * 1024) {
+          showNotification('Video size must be less than 20MB', true);
+          return;
+        }
+        
+        videoLoader.classList.add('active');
+        document.getElementById('videoResults').style.display = 'grid';
+        
+        const video = document.getElementById('uploadedVideo');
+        video.src = URL.createObjectURL(file);
+        video.load();
+        
+        // For demo purposes, we'll just process the first frame
+        video.addEventListener('loadeddata', () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0);
+          
+          const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+          
+          // Send to server for testing
+          socket.emit('testModel', {
+            type: 'video',
+            imageBase64: base64
+          });
+        });
+      }
+      
+      // Drag and Drop Setup
+      function setupDragAndDrop() {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+          document.getElementById('imageUploadArea').addEventListener(eventName, preventDefaults, false);
+          document.getElementById('videoUploadArea').addEventListener(eventName, preventDefaults, false);
+        });
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+          document.getElementById('imageUploadArea').addEventListener(eventName, () => {
+            document.getElementById('imageUploadArea').style.borderColor = 'var(--primary)';
+            document.getElementById('imageUploadArea').style.backgroundColor = 'var(--primary-light)';
+          }, false);
+          
+          document.getElementById('videoUploadArea').addEventListener(eventName, () => {
+            document.getElementById('videoUploadArea').style.borderColor = 'var(--primary)';
+            document.getElementById('videoUploadArea').style.backgroundColor = 'var(--primary-light)';
+          }, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+          document.getElementById('imageUploadArea').addEventListener(eventName, () => {
+            document.getElementById('imageUploadArea').style.borderColor = '#cbd5e0';
+            document.getElementById('imageUploadArea').style.backgroundColor = '';
+          }, false);
+          
+          document.getElementById('videoUploadArea').addEventListener(eventName, () => {
+            document.getElementById('videoUploadArea').style.borderColor = '#cbd5e0';
+            document.getElementById('videoUploadArea').style.backgroundColor = '';
+          }, false);
+        });
+        
+        document.getElementById('imageUploadArea').addEventListener('drop', (e) => {
+          const dt = e.dataTransfer;
+          const file = dt.files[0];
+          
+          if (file && file.type.match('image.*')) {
+            const input = document.getElementById('imageInput');
+            input.files = dt.files;
+            handleImageUpload({ target: { files: [file] } });
+          }
+        }, false);
+        
+        document.getElementById('videoUploadArea').addEventListener('drop', (e) => {
+          const dt = e.dataTransfer;
+          const file = dt.files[0];
+          
+          if (file && file.type.match('video.*')) {
+            const input = document.getElementById('videoInput');
+            input.files = dt.files;
+            handleVideoUpload({ target: { files: [file] } });
+          }
+        }, false);
+      }
+      
+      function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
     });
   </script>
 </body>
