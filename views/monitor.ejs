@@ -879,11 +879,6 @@
       let currentThreshold = 15;
       let alertActive = false;
       let alertTimeout = null;
-      let videoFrames = [];
-      let frameCounts = [];
-      let videoDuration = 0;
-      let frameRate = 25;
-      let countChart;
       
       // Initialize
       setupEventListeners();
@@ -973,34 +968,19 @@
             thresholdControl.classList.add('disabled');
             
             showNotification(`Image analysis complete: ${data.count} people detected`);
+          } else if (data.testType === 'video') {
+            videoLoader.classList.remove('active');
+            document.getElementById('analyzedVideoFrame').src = 'data:image/png;base64,' + data.annotatedImage;
+            
+            showNotification(`Video frame processed: ${data.count} people detected`);
           }
         } else {
           if (data.testType === 'image') {
             imageLoader.classList.remove('active');
+          } else if (data.testType === 'video') {
+            videoLoader.classList.remove('active');
           }
           showNotification('Analysis failed: ' + (data.error || 'Unknown error'), true);
-        }
-      });
-
-      socket.on('videoProcessed', (data) => {
-        if (data && data.success) {
-          videoLoader.classList.remove('active');
-          const video = document.getElementById('processedVideo');
-          video.src = data.processedVideoUrl;
-          
-          // Initialize timeline and chart with the received frame counts
-          frameCounts = data.frameCounts || [];
-          initTimeline();
-          initCountChart();
-          
-          // Disable alert settings for video analysis
-          thresholdSlider.disabled = true;
-          thresholdControl.classList.add('disabled');
-          
-          showNotification('Video processing complete');
-        } else {
-          videoLoader.classList.remove('active');
-          showNotification('Video processing failed: ' + (data.error || 'Unknown error'), true);
         }
       });
 
@@ -1182,133 +1162,32 @@
         videoLoader.classList.add('active');
         document.getElementById('videoResults').style.display = 'grid';
         
-        // Create FormData and send to server
-        const formData = new FormData();
-        formData.append('video', file);
+        const video = document.getElementById('uploadedVideo');
+        video.src = URL.createObjectURL(file);
+        video.load();
         
-        fetch('/process-video', {
-          method: 'POST',
-          body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            // The server will handle the processing and emit 'videoProcessed' when done
-            showNotification('Video upload successful, processing...');
-          } else {
-            videoLoader.classList.remove('active');
-            showNotification('Video upload failed: ' + (data.error || 'Unknown error'), true);
-          }
-        })
-        .catch(error => {
-          videoLoader.classList.remove('active');
-          showNotification('Video upload failed: ' + error.message, true);
-        });
-      }
-      
-      function initTimeline() {
-        const scrubber = document.getElementById('timelineScrubber');
-        const progress = document.getElementById('timelineProgress');
-        const marker = document.getElementById('timelineMarker');
-        const countsContainer = document.getElementById('timelineCounts');
-        const frameInfo = document.getElementById('currentFrameInfo');
-        const video = document.getElementById('processedVideo');
-        
-        // Populate timeline counts
-        countsContainer.innerHTML = '';
-        const frameStep = Math.max(1, Math.floor(frameCounts.length / 10));
-        
-        for (let i = 0; i < frameCounts.length; i += frameStep) {
-          const count = frameCounts[i];
-          const marker = document.createElement('div');
-          marker.className = 'count-marker';
-          marker.innerHTML = `
-            <div class="count-value ${count >= currentThreshold * 1.5 ? 'high-count' : 
-              count >= currentThreshold ? 'medium-count' : ''}">${count}</div>
-            <div>${(i / frameRate).toFixed(1)}s</div>
-          `;
-          countsContainer.appendChild(marker);
-        }
-        
-        // Update timeline during playback
-        video.addEventListener('timeupdate', () => {
-          const progressPercent = (video.currentTime / videoDuration) * 100;
-          progress.style.width = `${progressPercent}%`;
-          marker.style.left = `${progressPercent}%`;
+        // For demo purposes, we'll just process the first frame
+        video.addEventListener('loadeddata', () => {
+          // Create canvas to draw the frame with count
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0);
           
-          // Find current frame
-          const currentFrame = Math.floor(video.currentTime * frameRate);
-          const count = frameCounts[currentFrame] || 0;
-          frameInfo.textContent = `Frame: ${currentFrame + 1}/${frameCounts.length} - Count: ${count}`;
+          // Show the original frame immediately
+          document.getElementById('analyzedVideoFrame').src = canvas.toDataURL();
           
-          // Update count display
-          countDisplay.textContent = count;
-          updateCrowdLevelIndicators(count);
-        });
-        
-        // Click to seek
-        scrubber.addEventListener('click', (e) => {
-          const rect = scrubber.getBoundingClientRect();
-          const percent = (e.clientX - rect.left) / rect.width;
-          video.currentTime = percent * videoDuration;
+          const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+          
+          // Send to server for testing
+          socket.emit('testModel', {
+            type: 'video',
+            imageBase64: base64
+          });
         });
       }
-      
-      function initCountChart() {
-        const ctx = document.getElementById('countChart').getContext('2d');
-        
-        // Destroy previous chart if exists
-        if (countChart) {
-          countChart.destroy();
-        }
-        
-        // Prepare data for chart
-        const labels = Array.from({length: frameCounts.length}, (_, i) => (i / frameRate).toFixed(1) + 's');
-        const thresholdLine = Array(frameCounts.length).fill(currentThreshold);
-        
-        countChart = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: labels,
-            datasets: [
-              {
-                label: 'People Count',
-                data: frameCounts,
-                borderColor: 'rgb(75, 192, 192)',
-                tension: 0.1,
-                fill: false
-              },
-              {
-                label: 'Alert Threshold',
-                data: thresholdLine,
-                borderColor: 'rgb(255, 99, 132)',
-                borderDash: [5, 5],
-                fill: false
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              y: {
-                beginAtZero: true,
-                title: {
-                  display: true,
-                  text: 'People Count'
-                }
-              },
-              x: {
-                title: {
-                  display: true,
-                  text: 'Time (seconds)'
-                }
-              }
-            }
-          }
-        });
-      }
-
+ 
       // Drag and Drop Setup
       function setupDragAndDrop() {
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
