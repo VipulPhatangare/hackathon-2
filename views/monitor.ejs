@@ -286,6 +286,27 @@
       padding: 1.5rem;
       background: var(--gray-light);
       border-radius: var(--border-radius);
+      transition: var(--transition);
+    }
+    
+    .threshold-control.disabled {
+      opacity: 0.6;
+      pointer-events: none;
+      position: relative;
+    }
+    
+    .threshold-control.disabled::after {
+      content: 'Disabled for analysis';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      z-index: 10;
     }
     
     .threshold-control label {
@@ -481,6 +502,86 @@
       margin-bottom: 1.5rem;
     }
     
+    /* Video Timeline */
+    .video-timeline {
+      margin-top: 1.5rem;
+      background: var(--gray-light);
+      border-radius: var(--border-radius);
+      padding: 1rem;
+    }
+    
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+    
+    .timeline-scrubber {
+      width: 100%;
+      height: 8px;
+      background: #d1d5db;
+      border-radius: 4px;
+      position: relative;
+      cursor: pointer;
+    }
+    
+    .timeline-progress {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 4px;
+      width: 0%;
+    }
+    
+    .timeline-marker {
+      position: absolute;
+      top: -4px;
+      width: 16px;
+      height: 16px;
+      background: var(--primary);
+      border-radius: 50%;
+      transform: translateX(-8px);
+    }
+    
+    .timeline-counts {
+      display: flex;
+      margin-top: 0.5rem;
+      overflow-x: auto;
+      padding-bottom: 0.5rem;
+    }
+    
+    .count-marker {
+      flex-shrink: 0;
+      width: 40px;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--gray);
+      position: relative;
+    }
+    
+    .count-marker::after {
+      content: '';
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      width: 2px;
+      height: 8px;
+      background: var(--gray);
+      transform: translateX(-1px);
+    }
+    
+    .count-value {
+      font-weight: 600;
+      color: var(--dark);
+    }
+    
+    .high-count {
+      color: var(--danger);
+    }
+    
+    .medium-count {
+      color: var(--warning);
+    }
+    
     /* Responsive Adjustments */
     @media (max-width: 1200px) {
       .visualization-grid {
@@ -657,26 +758,38 @@
           <div class="visualization-grid" id="videoResults" style="display: none;">
             <div class="card">
               <div class="card-header">
-                <h3><i class="fas fa-video"></i> Video Feed</h3>
+                <h3><i class="fas fa-video"></i> Processed Video</h3>
               </div>
               <div class="card-body">
                 <div class="visualization">
-                  <video id="uploadedVideo" controls></video>
+                  <video id="processedVideo" controls></video>
                   <div class="loader" id="videoLoader">
                     <div class="loader-spinner"></div>
                     <div class="loader-text">Processing video...</div>
                   </div>
+                </div>
+                
+                <div class="video-timeline">
+                  <div class="timeline-header">
+                    <span>Frame-by-frame analysis</span>
+                    <span id="currentFrameInfo">Frame: 0/0 - Count: 0</span>
+                  </div>
+                  <div class="timeline-scrubber" id="timelineScrubber">
+                    <div class="timeline-progress" id="timelineProgress"></div>
+                    <div class="timeline-marker" id="timelineMarker"></div>
+                  </div>
+                  <div class="timeline-counts" id="timelineCounts"></div>
                 </div>
               </div>
             </div>
             
             <div class="card">
               <div class="card-header">
-                <h3><i class="fas fa-project-diagram"></i> Analyzed Frames</h3>
+                <h3><i class="fas fa-chart-line"></i> Crowd Count Over Time</h3>
               </div>
               <div class="card-body">
                 <div class="visualization">
-                  <img id="analyzedVideoFrame" alt="Analyzed video frame" />
+                  <canvas id="countChart"></canvas>
                 </div>
               </div>
             </div>
@@ -733,6 +846,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       // DOM Elements
@@ -743,6 +857,7 @@
       const alertPopup = document.getElementById('alertPopup');
       const alertStatus = document.getElementById('alertStatus');
       const thresholdSlider = document.getElementById('thresholdSlider');
+      const thresholdControl = document.querySelector('.threshold-control');
       const lastUpdatedEl = document.getElementById('lastUpdated');
       
       // Crowd level elements
@@ -764,6 +879,11 @@
       let currentThreshold = 15;
       let alertActive = false;
       let alertTimeout = null;
+      let videoFrames = [];
+      let frameCounts = [];
+      let videoDuration = 0;
+      let frameRate = 25;
+      let countChart;
       
       // Initialize
       setupEventListeners();
@@ -841,24 +961,46 @@
         if (data && data.success) {
           if (data.testType === 'image') {
             imageLoader.classList.remove('active');
-            document.getElementById('originalImage').src = 'data:image/jpeg;base64,' + data.originalImage;
+            // Original image is already shown
             document.getElementById('analyzedImage').src = 'data:image/png;base64,' + data.annotatedImage;
-            document.getElementById('imageResults').style.display = 'grid';
+            
+            // Update the count display
+            countDisplay.textContent = data.count;
+            updateCrowdLevelIndicators(data.count);
+            
+            // Disable alert settings
+            thresholdSlider.disabled = true;
+            thresholdControl.classList.add('disabled');
             
             showNotification(`Image analysis complete: ${data.count} people detected`);
-          } else if (data.testType === 'video') {
-            videoLoader.classList.remove('active');
-            document.getElementById('analyzedVideoFrame').src = 'data:image/png;base64,' + data.annotatedImage;
-            
-            showNotification(`Video frame processed: ${data.count} people detected`);
           }
         } else {
           if (data.testType === 'image') {
             imageLoader.classList.remove('active');
-          } else if (data.testType === 'video') {
-            videoLoader.classList.remove('active');
           }
           showNotification('Analysis failed: ' + (data.error || 'Unknown error'), true);
+        }
+      });
+
+      socket.on('videoProcessed', (data) => {
+        if (data && data.success) {
+          videoLoader.classList.remove('active');
+          const video = document.getElementById('processedVideo');
+          video.src = data.processedVideoUrl;
+          
+          // Initialize timeline and chart with the received frame counts
+          frameCounts = data.frameCounts || [];
+          initTimeline();
+          initCountChart();
+          
+          // Disable alert settings for video analysis
+          thresholdSlider.disabled = true;
+          thresholdControl.classList.add('disabled');
+          
+          showNotification('Video processing complete');
+        } else {
+          videoLoader.classList.remove('active');
+          showNotification('Video processing failed: ' + (data.error || 'Unknown error'), true);
         }
       });
 
@@ -971,9 +1113,14 @@
         
         e.currentTarget.classList.add('active');
         document.getElementById(`${tabId}Content`).classList.add('active');
+        
+        // Re-enable threshold controls when switching to live mode
+        if (tabId === 'live') {
+          thresholdSlider.disabled = false;
+          thresholdControl.classList.remove('disabled');
+        }
       }
       
-      // Image Upload
       function handleImageUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -990,6 +1137,9 @@
         
         const reader = new FileReader();
         reader.onload = (event) => {
+          // Show the original image immediately
+          document.getElementById('originalImage').src = event.target.result;
+          document.getElementById('imageResults').style.display = 'grid';
           imageLoader.classList.add('active');
           
           // Convert to base64 and send to server
@@ -1015,7 +1165,6 @@
         reader.readAsDataURL(file);
       }
       
-      // Video Upload
       function handleVideoUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -1033,28 +1182,133 @@
         videoLoader.classList.add('active');
         document.getElementById('videoResults').style.display = 'grid';
         
-        const video = document.getElementById('uploadedVideo');
-        video.src = URL.createObjectURL(file);
-        video.load();
+        // Create FormData and send to server
+        const formData = new FormData();
+        formData.append('video', file);
         
-        // For demo purposes, we'll just process the first frame
-        video.addEventListener('loadeddata', () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(video, 0, 0);
-          
-          const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-          
-          // Send to server for testing
-          socket.emit('testModel', {
-            type: 'video',
-            imageBase64: base64
-          });
+        fetch('/process-video', {
+          method: 'POST',
+          body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            // The server will handle the processing and emit 'videoProcessed' when done
+            showNotification('Video upload successful, processing...');
+          } else {
+            videoLoader.classList.remove('active');
+            showNotification('Video upload failed: ' + (data.error || 'Unknown error'), true);
+          }
+        })
+        .catch(error => {
+          videoLoader.classList.remove('active');
+          showNotification('Video upload failed: ' + error.message, true);
         });
       }
       
+      function initTimeline() {
+        const scrubber = document.getElementById('timelineScrubber');
+        const progress = document.getElementById('timelineProgress');
+        const marker = document.getElementById('timelineMarker');
+        const countsContainer = document.getElementById('timelineCounts');
+        const frameInfo = document.getElementById('currentFrameInfo');
+        const video = document.getElementById('processedVideo');
+        
+        // Populate timeline counts
+        countsContainer.innerHTML = '';
+        const frameStep = Math.max(1, Math.floor(frameCounts.length / 10));
+        
+        for (let i = 0; i < frameCounts.length; i += frameStep) {
+          const count = frameCounts[i];
+          const marker = document.createElement('div');
+          marker.className = 'count-marker';
+          marker.innerHTML = `
+            <div class="count-value ${count >= currentThreshold * 1.5 ? 'high-count' : 
+              count >= currentThreshold ? 'medium-count' : ''}">${count}</div>
+            <div>${(i / frameRate).toFixed(1)}s</div>
+          `;
+          countsContainer.appendChild(marker);
+        }
+        
+        // Update timeline during playback
+        video.addEventListener('timeupdate', () => {
+          const progressPercent = (video.currentTime / videoDuration) * 100;
+          progress.style.width = `${progressPercent}%`;
+          marker.style.left = `${progressPercent}%`;
+          
+          // Find current frame
+          const currentFrame = Math.floor(video.currentTime * frameRate);
+          const count = frameCounts[currentFrame] || 0;
+          frameInfo.textContent = `Frame: ${currentFrame + 1}/${frameCounts.length} - Count: ${count}`;
+          
+          // Update count display
+          countDisplay.textContent = count;
+          updateCrowdLevelIndicators(count);
+        });
+        
+        // Click to seek
+        scrubber.addEventListener('click', (e) => {
+          const rect = scrubber.getBoundingClientRect();
+          const percent = (e.clientX - rect.left) / rect.width;
+          video.currentTime = percent * videoDuration;
+        });
+      }
+      
+      function initCountChart() {
+        const ctx = document.getElementById('countChart').getContext('2d');
+        
+        // Destroy previous chart if exists
+        if (countChart) {
+          countChart.destroy();
+        }
+        
+        // Prepare data for chart
+        const labels = Array.from({length: frameCounts.length}, (_, i) => (i / frameRate).toFixed(1) + 's');
+        const thresholdLine = Array(frameCounts.length).fill(currentThreshold);
+        
+        countChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'People Count',
+                data: frameCounts,
+                borderColor: 'rgb(75, 192, 192)',
+                tension: 0.1,
+                fill: false
+              },
+              {
+                label: 'Alert Threshold',
+                data: thresholdLine,
+                borderColor: 'rgb(255, 99, 132)',
+                borderDash: [5, 5],
+                fill: false
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: 'People Count'
+                }
+              },
+              x: {
+                title: {
+                  display: true,
+                  text: 'Time (seconds)'
+                }
+              }
+            }
+          }
+        });
+      }
+
       // Drag and Drop Setup
       function setupDragAndDrop() {
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {

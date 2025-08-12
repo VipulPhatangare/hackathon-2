@@ -8,6 +8,9 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const sharp = require('sharp');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 const server = http.createServer(app);
@@ -22,9 +25,15 @@ if (!ROBOFLOW_ENDPOINT || !ROBOFLOW_API_KEY) {
 }
 
 // Alert threshold system
-let ALERT_THRESHOLD = 5;
+let ALERT_THRESHOLD = 15;
 const ALERT_COOLDOWN = 5 * 60 * 1000;
 let lastAlertTime = 0;
+
+// Video processing variables
+const FRAME_RATE = 25;
+const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 2);
+let inFlight = 0;
+const queue = [];
 
 // views + static
 app.set('view engine', 'ejs');
@@ -33,9 +42,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ensure uploads dir exists
 const uploadDir = path.join(__dirname, 'public', 'uploads');
+const processedDir = path.join(__dirname, 'public', 'processed');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+if (!fs.existsSync(processedDir)) fs.mkdirSync(processedDir, { recursive: true });
 
-// multer for single uploads
+// multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
@@ -43,7 +54,7 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${safe}`);
   }
 });
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
 // ROUTES
 app.get('/input', (req, res) => {
@@ -63,7 +74,7 @@ app.post('/predict', upload.single('image'), async (req, res) => {
 
     const resp = await axios.post(
       ROBOFLOW_ENDPOINT,
-      { api_key: ROBOFLOW_API_KEY, inputs: { image: { type: 'base64', value: base64 }, confidence: 0.3} },
+      { api_key: ROBOFLOW_API_KEY, inputs: { image: { type: 'base64', value: base64 }, confidence: 0.3 }},
       { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
     );
 
@@ -74,6 +85,7 @@ app.post('/predict', upload.single('image'), async (req, res) => {
     if (count >= ALERT_THRESHOLD && Date.now() - lastAlertTime > ALERT_COOLDOWN) {
       lastAlertTime = Date.now();
       console.log(`ALERT: Threshold exceeded (${count} people)`);
+      io.emit('alert', { count, threshold: ALERT_THRESHOLD });
     }
     
     // Process images
@@ -94,12 +106,30 @@ app.post('/predict', upload.single('image'), async (req, res) => {
   }
 });
 
-// -------------- Socket.IO real-time ----------------
+// Video processing endpoint
+app.post('/process-video', upload.single('video'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'No video uploaded' });
 
-const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 2);
-let inFlight = 0;
-const queue = [];
+    const videoPath = req.file.path;
+    const outputVideoPath = path.join(processedDir, `processed_${req.file.filename}`);
+    
+    // Process video frames and create annotated video
+    const { frameCounts, processedVideoPath } = await processVideo(videoPath, outputVideoPath);
+    
+    res.json({
+      success: true,
+      videoUrl: `/uploads/${req.file.filename}`,
+      processedVideoUrl: `/processed/${path.basename(processedVideoPath)}`,
+      frameCounts: frameCounts
+    });
+  } catch (err) {
+    console.error('Video processing error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Video processing failed' });
+  }
+});
 
+// Helper Functions
 async function callRoboflowWithBase64(base64) {
   const body = {
     api_key: ROBOFLOW_API_KEY,
@@ -112,57 +142,95 @@ async function callRoboflowWithBase64(base64) {
   return resp.data;
 }
 
-async function processFrameAndEmit(clientSocket, frameBase64) {
-  if (inFlight >= MAX_CONCURRENT) {
-    queue.push({ socket: clientSocket, frameBase64 });
-    return;
-  }
-  inFlight++;
-  try {
-    const buf = Buffer.from(frameBase64, 'base64');
-    const rf = await callRoboflowWithBase64(frameBase64);
+async function processVideo(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    const frameCounts = [];
+    const tempDir = path.join(__dirname, 'temp_frames');
+    const processedDir = path.join(__dirname, 'temp_processed');
     
-    const output = rf.outputs?.[0] || {};
-    const predictions = output.predictions?.predictions || [];
-    const count = output.count_objects || predictions.length;
+    // Create temp directories
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+    if (!fs.existsSync(processedDir)) fs.mkdirSync(processedDir);
     
-    // Check threshold for real-time alerts
-    if (count >= ALERT_THRESHOLD && Date.now() - lastAlertTime > ALERT_COOLDOWN) {
-      lastAlertTime = Date.now();
-      console.log(`ALERT: Threshold exceeded (${count} people)`);
-      io.emit('alert', { count, threshold: ALERT_THRESHOLD });
-    }
-    
-    // Process images
-    const processedImage = await drawDotsOnImage(buf, predictions);
-    const heatmapImage = await generateHeatmap(buf, predictions);
-    
-    const payload = {
-      success: true,
-      count: count,
-      annotatedImage: processedImage.toString('base64'),
-      heatmapImage: heatmapImage.toString('base64'),
-      predictions: predictions,
-      threshold: ALERT_THRESHOLD
-    };
-    
-    io.emit('prediction', payload);
-  } catch (err) {
-    console.error('Roboflow processing error:', err);
-    io.emit('prediction', { 
-      success: false, 
-      error: err.message || 'Inference error' 
-    });
-  } finally {
-    inFlight--;
-    if (queue.length > 0 && inFlight < MAX_CONCURRENT) {
-      const next = queue.shift();
-      processFrameAndEmit(next.socket, next.frameBase64);
-    }
-  }
+    // Extract frames from video
+    ffmpeg(inputPath)
+      .on('error', reject)
+      .on('end', async () => {
+        try {
+          // Process each frame
+          const frameFiles = fs.readdirSync(tempDir)
+            .filter(file => file.endsWith('.jpg'))
+            .sort((a, b) => parseInt(a.split('-')[1]) - parseInt(b.split('-')[1]));
+          
+          for (const file of frameFiles) {
+            const framePath = path.join(tempDir, file);
+            const buf = fs.readFileSync(framePath);
+            const base64 = buf.toString('base64');
+            
+            try {
+              const rf = await callRoboflowWithBase64(base64);
+              const count = rf.outputs?.[0]?.count_objects || 0;
+              frameCounts.push(count);
+              
+              // Process frame with annotations
+              const processedImage = await drawDotsOnImage(buf, rf.outputs?.[0]?.predictions?.predictions || []);
+              const processedPath = path.join(processedDir, file);
+              fs.writeFileSync(processedPath, processedImage);
+              
+              // Emit progress to client
+              io.emit('videoFrameProcessed', {
+                frameIndex: frameCounts.length - 1,
+                count: count,
+                totalFrames: frameFiles.length
+              });
+              
+              // Clean up frame file
+              fs.unlinkSync(framePath);
+            } catch (err) {
+              console.error('Frame processing error:', err);
+              frameCounts.push(0);
+              // Copy original frame if processing fails
+              const processedPath = path.join(processedDir, file);
+              fs.copyFileSync(framePath, processedPath);
+              fs.unlinkSync(framePath);
+            }
+          }
+          
+          // Create video from processed frames
+          await createVideoFromFrames(processedDir, outputPath, FRAME_RATE);
+          
+          // Clean up temp directories
+          fs.rmSync(tempDir, { recursive: true });
+          fs.rmSync(processedDir, { recursive: true });
+          
+          resolve({
+            frameCounts: frameCounts,
+            processedVideoPath: outputPath
+          });
+        } catch (err) {
+          reject(err);
+        }
+      })
+      .output(path.join(tempDir, 'frame-%04d.jpg'))
+      .fps(FRAME_RATE)
+      .run();
+  });
 }
 
-// Image processing functions
+async function createVideoFromFrames(framesDir, outputPath, fps) {
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(path.join(framesDir, 'frame-%04d.jpg'))
+      .inputFPS(fps)
+      .outputFPS(fps)
+      .videoCodec('libx264')
+      .outputOptions('-pix_fmt yuv420p')
+      .on('error', reject)
+      .on('end', resolve)
+      .save(outputPath);
+  });
+}
+
 async function drawDotsOnImage(imageBuffer, predictions) {
   try {
     if (!Array.isArray(predictions)) {
@@ -176,6 +244,14 @@ async function drawDotsOnImage(imageBuffer, predictions) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
     
+    // Draw count at top left
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(10, 10, 150, 60);
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 24px Arial';
+    ctx.fillText(`People: ${predictions.length}`, 20, 40);
+    
+    // Draw dots for each prediction
     ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
     predictions.forEach(pred => {
       try {
